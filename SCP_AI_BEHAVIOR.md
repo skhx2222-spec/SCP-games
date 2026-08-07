@@ -98,6 +98,7 @@ task.spawn(function()
     end
 end)
 
+---
 ## 5. 서버 최적화 및 예외 처리 (Performance Optimization)
 연산 연주기 분할 (Interval Throttling):
 
