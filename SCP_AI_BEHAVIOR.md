@@ -97,6 +97,7 @@ task.spawn(function()
         end
     end
 end)
+```
 
 ---
 ## 5. 서버 최적화 및 예외 처리 (Performance Optimization)
