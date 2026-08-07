@@ -100,7 +100,9 @@ end)
 ```
 
 ---
+
 ## 5. 서버 최적화 및 예외 처리 (Performance Optimization)
+
 연산 연주기 분할 (Interval Throttling):
 
 매 프레임(RenderStepped) 시야 검사를 진행하면 서버 렉이 발생합니다. AI 상태 체크 타이머를 task.wait(0.1) (초당 10회) 수준으로 조절하여 CPU 오버헤드를 제어합니다.
