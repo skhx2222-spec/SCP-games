@@ -245,3 +245,106 @@
   * **[버튼1] 특수**: [제세동 전격 빔] 다운된 아군 부활(체력 100%) / 보스 타격 시 550 대미지 (쿨타임 28초)
   * **[버튼2] 스킬**: [나노 오버차지 보호막] 주변 모든 아군에게 5초간 1회용 무적 보호막 부여 (쿨타임 18초)
   * **[엔드게임 강화]**: 1강당 600G 소모 / 성능 영구 향상 (사격 시 기본 힐량 +5 / 보호막 유지시간 +1초)
+
+
+# ⚔️ Weapon.md (무기 시스템 명세서)
+
+본 문서는 게임 내 존재하는 15종 무기의 등급 체계, 상세 스탯 구조, 클라이언트-서버 간의 넷코드(Network Code) 판정 로직, 그리고 `Shop.md`와 연동되는 최종 단계(+5) 확정 강화 시의 시각적 보상(VFX) 구현 방식을 정의합니다.
+
+---
+
+## 1. 무기 등급 및 15종 무기 카탈로그 (Weapon Tiers)
+
+모든 무기는 4가지 등급으로 엄격히 분류되며, 등급이 높아질수록 기본 스탯 성능과 고유 특수 스킬(Skill)의 위력이 강력해집니다.
+
+| 등급 (Tier) | 대표 색상 (Color) | 네온 이펙트 (Neon) | 무기 리스트 (총 15종) |
+| :--- | :--- | :--- | :--- |
+| **일반 (Common)** | 하얀색 (White) | 없음 | 1. 낡은 권총 (M1911)<br>2. 진압용 진봉 (근접)<br>3. 기본 펌프 샷건 |
+| **희귀 (Rare)** | 파란색 (Blue) | 은은한 블루 (0, 150, 255) | 4. 돌격소총 (M4A1 라이플)<br>5. 기관단총 (MP5)<br>6. 전투 저격총 (지정사수)<br>7. 소형 기관총 (Uzi) |
+| **영웅 (Epic)** | 보라색 (Purple) | 맥동하는 퍼플 (170, 0, 255) | 8. 전술 반자동 샷건<br>9. 고정밀 볼트액션 저격총<br>10. 중기관총 (Minigun)<br>11. 고주파 진동 단검 (근접) |
+| **전설 (Legendary)**| 주황색 (Orange) | 불타는 오렌지 (255, 100, 0) | 12. SCP-049의 오염된 낫 (근접)<br>13. 레일건 (대 보스용)<br>14. 프로토타입 레이저건<br>15. 플라즈마 캐논 |
+
+---
+
+## 2. 무기 기본 데이터 구조 (Base Attribute Structure)
+
+로블록스 `Workspace` 또는 `ServerStorage`에 배치될 모든 무기 툴(`Tool`) 인스턴스는 `Configuration` 폴더 내부에 아래의 고유 속성(Value Object) 데이터를 강제 체인 형태로 가집니다. 본 구조는 `Inventory.md` 및 `DataStoreService.md`와 1:1로 매핑됩니다.
+
+WeaponTool (Tool)
+┗ 📁 Configuration (Folder)┣ 📝 WeaponID (StringValue) -> 예: "M4A1" / "SCP_049_SICKLE"
+┣ 📝 WeaponTier (StringValue) -> "Common" / "Rare" / "Epic" / "Legendary"┣ 🔢 BaseDamage (NumberValue) -> 강화가 적용되지 않은 순수 기본 대미지
+┣ 🔢 UpgradeLevel (IntValue) -> 현재 강화 단계 (0 ~ 5 범위 제한)
+┣ 🔢 FireRate (NumberValue) -> 공격 속도 및 연사 속도 (초당 발사 수 쿨타임 계산용)
+┣ 🔢 MaxAmmo (IntValue) -> 장전 가능한 최대 장탄수
+┗ 🔢 CurrentAmmo (IntValue) -> 현재 탄창에 남아있는 잔여 탄약
+
+## 3. 🛡️ 보안 및 대미지 판정 로직 (Anti-Cheat Combat System)
+
+클라이언트(Exploit 사용 유저) 단에서의 초고속 연사 팅기기 렉, 데미지 임의 수정, 사거리 핵 등을 원천 차단하기 위해 모든 타격 판정 및 데미지 연산은 **서버(Server-Side)에서 최종 검증**합니다.
+
+### 3.1. 네트워크 전투 통신 흐름 (Network Flow)
+1. **클라이언트 (LocalScript)**: 레이캐스트(`Workspace:Raycast`)를 사용하여 피격 대상(보스 오브젝트 및 Humanoid)을 일차 탐지한 후 서버에 검증 이벤트를 전송합니다.
+2. **리모트 이벤트**: `ReplicatedStorage.RemoteEvents.WeaponAttack:FireServer(targetHit, hitPosition)`
+3. **서버 (Script)**: 요청을 보낸 플레이어의 현재 장착 무기 스탯을 확인하고 아래 3대 보안 요소를 실시간 검증합니다.
+
+### 3.2. 서버 삼중 검증 프로세스 (Triple Verification)
+- **사거리 검증 (Distance Check)**: `(Player.Character.Head.Position - hitPosition).Magnitude`가 무기 고유 최대 사거리를 초과했는지 판정합니다.
+- **연사 속도 검증 (Cooltime Check)**: 서버 세션에 기록된 해당 유저의 직전 공격 시간(`os.clock()`)과 현재 시간의 차이가 무기의 `FireRate` 최소 주기를 만족하는지 확인합니다.
+- **대미지 최종 적용**: 검증을 모두 통과하면 서버가 `Shop.md`에 기록된 유저의 무기 `UpgradeLevel`을 합산 계산하여 보스의 `Humanoid:TakeDamage()`를 호출하고, 결과를 `DamageMeter.md`로 전송합니다.
+
+---
+
+## 4. 🌟 최종 단계(+5) 달성 시 시각적 보상 구현 (Max Upgrade VFX)
+
+`Shop.md`에서 100% 확정 강화를 달성하여 최종 진화 형태인 **+5 단계**에 도달한 전설 무기는, 플레이어가 무기를 장착(`Equipped`)하는 즉시 서버 및 클라이언트 모든 유저에게 화려한 영웅적 명예 시각 효과를 노출합니다.
+
+### 4.1. 메테리얼 및 텍스처 오버레이 (Neon & ForceField)
+- 무기가 장착되는 프레임에, 무기 에셋 내부에 지정된 광원 파트(`GlowPart`)의 메테리얼을 `Enum.Material.Neon`으로 즉시 강제 갱신합니다.
+- 무기 외형 전체 표면에 에너지가 휘감아 치는 시각 효과를 주기 위해 상위 레이어 메테리얼을 `Enum.Material.ForceField`로 매끄럽게 교체 오버레이합니다.
+
+### 4.2. 특수 파티클 및 트레일 방출 (Particle System)
+- **MaxUpgradeEffects 폴더 제어**: 무기 모델 내부에 기본 비활성화 상태로 숨겨진 파티클 컨테이너를 스크립트로 활성화합니다.
+- **상시 파티클**: 총구(Muzzle) 또는 칼날(Blade) 파트에서 SCP 특유의 격리 실패 스타일 전술 스파크 및 암흑 오라 파티클을 영구 방출합니다. (`ParticleEmitter.Enabled = true`)
+- **공격 궤적**: 칼을 휘두르거나 발사체를 발사할 때, 일반 무기 대비 2배 이상 굵고 화려하게 잔상이 남는 전용 네온 트레일(`Trail`)을 실시간 생성합니다.
+
+### 4.3. 서버 측 이펙트 제어 스크립트 구현 명세 (Lua Reference)
+```lua
+-- Weapon Server Script (각 Weapon Tool 인스턴스 내부에 반드시 배치)
+local tool = script.Parent
+local config = tool:WaitForChild("Configuration")
+local upgradeLevel = config:WaitForChild("UpgradeLevel")
+
+tool.Equipped:Connect(function()
+    -- 플레이어의 무기 강화 단계가 최종 마스터 단계(+5)인지 검증
+    if upgradeLevel.Value >= 5 then
+        local vfxFolder = tool:FindFirstChild("MaxUpgradeEffects")
+        if vfxFolder then
+            -- 1. 무기 이펙트 폴더 내부의 모든 파티클 및 트레일, 라이트 인스턴스 일괄 활성화
+            for _, effect in pairs(vfxFolder:GetDescendants()) do
+                if effect:IsA("ParticleEmitter") or effect:IsA("Light") or effect:IsA("Trail") then
+                    effect.Enabled = true
+                end
+            end
+            
+            -- 2. 핵심 발광 파트(GlowPart)의 속성을 Neon 메테리얼 및 불타는 오렌지 컬러로 변환
+            local glowPart = tool:FindFirstChild("GlowPart")
+            if glowPart and glowPart:IsA("BasePart") then
+                glowPart.Material = Enum.Material.Neon
+                glowPart.Color = Color3.fromRGB(255, 100, 0) -- 전설 최종 마스터 전용 컬러 고정
+            end
+        end
+    end
+end)
+
+tool.Unequipped:Connect(function()
+    -- 무기 해제 시 서버 연산 및 파티클 오버플로우 방지를 위한 일괄 비활성화 리셋 처리
+    local vfxFolder = tool:FindFirstChild("MaxUpgradeEffects")
+    if vfxFolder then
+        for _, effect in pairs(vfxFolder:GetDescendants()) do
+            if effect:IsA("ParticleEmitter") or effect:IsA("Light") or effect:IsA("Trail") then
+                effect.Enabled = false
+            end
+        end
+    end
+end)
+```
