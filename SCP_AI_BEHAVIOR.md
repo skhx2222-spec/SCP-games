@@ -97,3 +97,12 @@ task.spawn(function()
         end
     end
 end)
+
+## 5. 서버 최적화 및 예외 처리 (Performance Optimization)
+연산 연주기 분할 (Interval Throttling):
+
+매 프레임(RenderStepped) 시야 검사를 진행하면 서버 렉이 발생합니다. AI 상태 체크 타이머를 task.wait(0.1) (초당 10회) 수준으로 조절하여 CPU 오버헤드를 제어합니다.
+
+구역 기반 쿼리 (Spatial Partitioning):
+
+시설 전체의 모든 플레이어를 매번 순회하지 않고, SCP가 위치한 구역(Zone) 내의 플레이어 리스트만 우선 추출하여 거리 검사를 수행합니다.
